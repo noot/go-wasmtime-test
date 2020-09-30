@@ -11,14 +11,6 @@ import (
 	"github.com/bytecodealliance/wasmtime-go"
 )
 
-// var ctx = struct {
-// 	tr  *trie.Trie
-// 	mem []byte
-// }{
-// 	tr:  trie.NewEmptyTrie(),
-// 	mem: []byte("hello"),
-// }
-
 type Ctx struct {
 	storage   *testRuntimeStorage
 	allocator *runtime.FreeingBumpHeapAllocator
@@ -32,9 +24,6 @@ var ctx = &Ctx{
 var logger = log.New("pkg", "runtime")
 
 func main() {
-	// Almost all operations in wasmtime require a contextual `store`
-	// argument to share, so create that first
-	//store := wasmtime.NewStore(wasmtime.NewEngine())
 	engine := wasmtime.NewEngine()
 	store := wasmtime.NewStore(engine)
 
@@ -67,15 +56,18 @@ func main() {
 	ext_malloc := wasmtime.WrapFunc(store, func(size int32) int32 {
 		return 0
 	})
+	ext_free := wasmtime.WrapFunc(store, func(addr int32) {})
 	ext_print_utf8 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, len int32) {})
 	ext_print_hex := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, offset, size int32) {})
 	ext_get_storage_into := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen, valueData, valueLen, valueOffset int32) int32 {
 		return 0
 	})
 	ext_set_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen, valueData, valueLen int32) {})
-	ext_set_child_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, storageKeyLen, keyData, keyLen, valueData, valueLen int32) {})
+	ext_set_child_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, storageKeyData, storageKeyLen, keyData, keyLen, valueData, valueLen int32) {})
 	ext_storage_root := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, resultPtr int32) {})
-	ext_storage_changes_root := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, d int32) {})
+	ext_storage_changes_root := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, d int32) int32 {
+		return 0
+	})
 	ext_get_allocated_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen, writtenOut int32) int32 {
 		return 0
 	})
@@ -97,9 +89,6 @@ func main() {
 	})
 	ext_ed25519_generate := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, idData, seed, seedLen, out int32) {})
 	ext_ed25519_verify := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, msgData, msgLen, sigData, pubkeyData int32) int32 {
-		return 0
-	})
-	ext_secp256k1_ecdsa_recover := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, msgData, sigData, pubkeyData int32) int32 {
 		return 0
 	})
 	ext_is_validator := wasmtime.WrapFunc(store, func(c *wasmtime.Caller) int32 {
@@ -162,58 +151,55 @@ func main() {
 	// Next up we instantiate a module which is where we link in all our
 	// imports. We've got one import so we pass that in here.
 	instance, err := wasmtime.NewInstance(store, module, []*wasmtime.Extern{
-		ext_print_num.AsExtern(),
-		ext_malloc.AsExtern(),
-		ext_print_utf8.AsExtern(),
-		ext_print_hex.AsExtern(),
-		ext_get_storage_into.AsExtern(),
-		ext_set_storage.AsExtern(),
-		ext_set_child_storage.AsExtern(),
-		ext_storage_root.AsExtern(),
-		ext_storage_changes_root.AsExtern(),
-		ext_get_allocated_storage.AsExtern(),
-		ext_clear_storage.AsExtern(),
-		ext_clear_prefix.AsExtern(),
-		ext_blake2_256_enumerated_trie_root.AsExtern(),
 		ext_blake2_256.AsExtern(),
-		ext_twox_64.AsExtern(),
 		ext_twox_128.AsExtern(),
-		ext_sr25519_generate.AsExtern(),
-		ext_sr25519_public_keys.AsExtern(),
-		ext_sr25519_sign.AsExtern(),
-		ext_sr25519_verify.AsExtern(),
-		ext_ed25519_generate.AsExtern(),
-		ext_ed25519_verify.AsExtern(),
-		ext_secp256k1_ecdsa_recover.AsExtern(),
-		ext_is_validator.AsExtern(),
-		ext_local_storage_get.AsExtern(),
-		ext_local_storage_compare_and_set.AsExtern(),
-		ext_network_state.AsExtern(),
-		ext_submit_transaction.AsExtern(),
-		ext_local_storage_set.AsExtern(),
+		ext_clear_storage.AsExtern(),
+		ext_set_storage.AsExtern(),
+		ext_get_allocated_storage.AsExtern(),
+		ext_get_storage_into.AsExtern(),
 		ext_kill_child_storage.AsExtern(),
 		ext_sandbox_memory_new.AsExtern(),
 		ext_sandbox_memory_teardown.AsExtern(),
 		ext_sandbox_instantiate.AsExtern(),
 		ext_sandbox_invoke.AsExtern(),
 		ext_sandbox_instance_teardown.AsExtern(),
+		ext_print_utf8.AsExtern(),
+		ext_print_hex.AsExtern(),
+		ext_print_num.AsExtern(),
+		ext_is_validator.AsExtern(),
+		ext_local_storage_get.AsExtern(),
+		ext_local_storage_compare_and_set.AsExtern(),
+		ext_sr25519_public_keys.AsExtern(),
+		ext_network_state.AsExtern(),
+		ext_sr25519_sign.AsExtern(),
+		ext_submit_transaction.AsExtern(),
+		ext_local_storage_set.AsExtern(),
 		ext_get_allocated_child_storage.AsExtern(),
+		ext_ed25519_generate.AsExtern(),
+		ext_sr25519_generate.AsExtern(),
 		ext_child_storage_root.AsExtern(),
+		ext_clear_prefix.AsExtern(),
+		ext_storage_root.AsExtern(),
+		ext_storage_changes_root.AsExtern(),
 		ext_clear_child_storage.AsExtern(),
+		ext_set_child_storage.AsExtern(),
 		ext_secp256k1_ecdsa_recover_compressed.AsExtern(),
+		ext_ed25519_verify.AsExtern(),
+		ext_sr25519_verify.AsExtern(),
 		ext_sandbox_memory_get.AsExtern(),
 		ext_sandbox_memory_set.AsExtern(),
+		ext_blake2_256_enumerated_trie_root.AsExtern(),
+		ext_malloc.AsExtern(),
+		ext_free.AsExtern(),
+		ext_twox_64.AsExtern(),
 		ext_log.AsExtern(),
 	})
 	check(err)
 
 	// After we've instantiated we can lookup our `run` function and call
 	// it.
-	run := instance.GetExport("test_ext_log").Func()
-	_, err = run.Call(0, 10)
-	check(err)
-
-	_, err = run.Call(0, 10)
+	run := instance.GetExport("Core_version").Func()
+	_, err = run.Call(1, 0)
 	check(err)
 }
 
