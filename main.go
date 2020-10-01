@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	//"runtime"
+	"runtime"
 
 	//"github.com/ChainSafe/gossamer/lib/keystore"
-	"github.com/ChainSafe/gossamer/lib/runtime"
+	gssmrruntime "github.com/ChainSafe/gossamer/lib/runtime"
 	"github.com/ChainSafe/gossamer/lib/trie"
 	log "github.com/ChainSafe/log15"
 	"github.com/bytecodealliance/wasmtime-go"
@@ -13,7 +13,7 @@ import (
 
 type Ctx struct {
 	storage   *testRuntimeStorage
-	allocator *runtime.FreeingBumpHeapAllocator
+	allocator *gssmrruntime.FreeingBumpHeapAllocator
 	//keystore    *keystore.GenericKeystore
 }
 
@@ -54,88 +54,153 @@ func main() {
 		logger.Debug("[ext_print_num]", "message", fmt.Sprintf("%d", data))
 	})
 	ext_malloc := wasmtime.WrapFunc(store, func(size int32) int32 {
-		return 0
+		logger.Trace("[ext_malloc] executing...")
+		return 8
 	})
-	ext_free := wasmtime.WrapFunc(store, func(addr int32) {})
-	ext_print_utf8 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, len int32) {})
-	ext_print_hex := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, offset, size int32) {})
+	ext_free := wasmtime.WrapFunc(store, func(addr int32) {
+		logger.Trace("[ext_free] executing...")
+	})
+	ext_print_utf8 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, len int32) {
+		logger.Trace("[ext_print_utf8] executing...")
+		m := c.GetExport("memory").Memory()
+		mem := m.UnsafeData()
+		logger.Info("[ext_print_utf8]", "message", mem[data:data+len])
+		runtime.KeepAlive(m)
+	})
+	ext_print_hex := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, offset, size int32) {
+		logger.Trace("[ext_print_hex] executing...")
+	})
 	ext_get_storage_into := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen, valueData, valueLen, valueOffset int32) int32 {
+		logger.Trace("[ext_get_storage_into] executing...")
 		return 0
 	})
-	ext_set_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen, valueData, valueLen int32) {})
-	ext_set_child_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, storageKeyData, storageKeyLen, keyData, keyLen, valueData, valueLen int32) {})
-	ext_storage_root := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, resultPtr int32) {})
+	ext_set_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen, valueData, valueLen int32) {
+		logger.Trace("[ext_set_storage] executing...")
+	})
+	ext_set_child_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, storageKeyData, storageKeyLen, keyData, keyLen, valueData, valueLen int32) {
+		logger.Trace("[ext_set_child_storage] executing...")
+	})
+	ext_storage_root := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, resultPtr int32) {
+		logger.Trace("[ext_storage_root] executing...")
+	})
 	ext_storage_changes_root := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, d int32) int32 {
+		logger.Trace("[ext_storage_changes_root] executing...")
 		return 0
 	})
 	ext_get_allocated_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen, writtenOut int32) int32 {
+		logger.Trace("[ext_get_allocated_storage] executing...")
 		return 0
 	})
-	ext_clear_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen int32) {})
-	ext_clear_prefix := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, prefixData, prefixLen int32) {})
-	ext_blake2_256_enumerated_trie_root := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, valuesData, lensData, lensLen, result int32) {})
-	ext_blake2_256 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, length, out int32) {})
-	ext_twox_64 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, length, out int32) {})
-	ext_twox_128 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, length, out int32) {})
-	ext_sr25519_generate := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, idData, seed, seedLen, out int32) {})
+	ext_clear_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen int32) {
+		logger.Trace("[ext_clear_storage] executing...")
+	})
+	ext_clear_prefix := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, prefixData, prefixLen int32) {
+		logger.Trace("[ext_clear_prefix] executing...")
+	})
+	ext_blake2_256_enumerated_trie_root := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, valuesData, lensData, lensLen, result int32) {
+		logger.Trace("[ext_blake2_256_enumerated_trie_root] executing...")
+	})
+	ext_blake2_256 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, length, out int32) {
+		logger.Trace("[ext_blake2_256] executing...")
+	})
+	ext_twox_64 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, length, out int32) {
+		logger.Trace("[ext_twox_64] executing...")
+	})
+	ext_twox_128 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, length, out int32) {
+		logger.Trace("[ext_twox_128] executing...")
+	})
+	ext_sr25519_generate := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, idData, seed, seedLen, out int32) {
+		logger.Trace("[ext_sr25519_generate] executing...")
+	})
 	ext_sr25519_public_keys := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, idData, resultLen int32) int32 {
+		logger.Trace("[ext_sr25519_public_keys] executing...")
 		return 0
 	})
 	ext_sr25519_sign := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, idData, pubkeyData, msgData, msgLen, out int32) int32 {
+		logger.Trace("[ext_sr25519_sign] executing...")
 		return 0
 	})
 	ext_sr25519_verify := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, msgData, msgLen, sigData, pubkeyData int32) int32 {
+		logger.Trace("[ext_sr25519_verify] executing...")
 		return 0
 	})
-	ext_ed25519_generate := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, idData, seed, seedLen, out int32) {})
+	ext_ed25519_generate := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, idData, seed, seedLen, out int32) {
+		logger.Trace("[ext_ed25519_generate] executing...")
+	})
 	ext_ed25519_verify := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, msgData, msgLen, sigData, pubkeyData int32) int32 {
+		logger.Trace("[ext_ed25519_verify] executing...")
 		return 0
 	})
 	ext_is_validator := wasmtime.WrapFunc(store, func(c *wasmtime.Caller) int32 {
+		logger.Trace("[ext_is_validator] executing...")
 		return 0
 	})
 	ext_local_storage_get := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, kind, key, keyLen, valueLen int32) int32 {
+		logger.Trace("[ext_local_storage_get] executing...")
 		return 0
 	})
 	ext_local_storage_compare_and_set := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, kind, key, keyLen, oldValue, oldValueLen, newValue, newValueLen int32) int32 {
+		logger.Trace("[ext_local_storage_compare_and_set] executing...")
 		return 0
 	})
 	ext_network_state := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, writtenOut int32) int32 {
+		logger.Trace("[ext_network_state] executing...")
 		return 0
 	})
 	ext_submit_transaction := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, len int32) int32 {
+		logger.Trace("[ext_submit_transaction] executing...")
 		return 0
 	})
-	ext_local_storage_set := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, kind, key, keyLen, value, valueLen int32) {})
-	ext_kill_child_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b int32) {})
+	ext_local_storage_set := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, kind, key, keyLen, value, valueLen int32) {
+		logger.Trace("[ext_local_storage_set] executing...")
+	})
+	ext_kill_child_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b int32) {
+		logger.Trace("[ext_kill_child_storage] executing...")
+	})
 	ext_sandbox_memory_new := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b int32) int32 {
+		logger.Trace("[ext_sandbox_memory_new] executing...")
 		return 0
 	})
-	ext_sandbox_memory_teardown := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a int32) {})
+	ext_sandbox_memory_teardown := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a int32) {
+		logger.Trace("[ext_sandbox_memory_teardown] executing...")
+	})
 	ext_sandbox_instantiate := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, g, d, e, f int32) int32 {
+		logger.Trace("[ext_sandbox_instantiate] executing...")
 		return 0
 	})
 	ext_sandbox_invoke := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, i, d, e, f, g, h int32) int32 {
+		logger.Trace("[ext_sandbox_invoke] executing...")
 		return 0
 	})
-	ext_sandbox_instance_teardown := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a int32) {})
+	ext_sandbox_instance_teardown := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a int32) {
+		logger.Trace("[ext_sandbox_instance_teardown] executing...")
+	})
 	ext_get_allocated_child_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, i, d, e int32) int32 {
+		logger.Trace("[ext_get_allocated_child_storage] executing...")
 		return 0
 	})
 	ext_child_storage_root := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, i int32) int32 {
+		logger.Trace("[ext_child_storage_root] executing...")
 		return 0
 	})
-	ext_clear_child_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, d, z int32) {})
+	ext_clear_child_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, d, z int32) {
+		logger.Trace("[ext_clear_child_storage] executing...")
+	})
 	ext_secp256k1_ecdsa_recover_compressed := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, i int32) int32 {
+		logger.Trace("[ext_secp256k1_ecdsa_recover_compressed] executing...")
 		return 0
 	})
 	ext_sandbox_memory_get := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, d, z int32) int32 {
+		logger.Trace("[ext_sandbox_memory_get] executing...")
 		return 0
 	})
 	ext_sandbox_memory_set := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, d, z int32) int32 {
+		logger.Trace("[ext_sandbox_memory_set] executing...")
 		return 0
 	})
-	ext_log := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, d, e, z int32) {})
+	ext_log := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b, d, e, z int32) {
+		logger.Trace("[ext_log] executing...")
+	})
 
 	// item := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, a, b int32) {
 	// 	m := c.GetExport("memory").Memory()
@@ -196,11 +261,31 @@ func main() {
 	})
 	check(err)
 
-	// After we've instantiated we can lookup our `run` function and call
-	// it.
+	mem := instance.GetExport("memory").Memory()
+	data := mem.UnsafeData()
+
 	run := instance.GetExport("Core_version").Func()
-	_, err = run.Call(1, 0)
+	resi, err := run.Call(1, 0)
 	check(err)
+
+	ret := resi.(int64)
+
+	length := int32(ret >> 32)
+	offset := int32(ret)
+
+	version := &gssmrruntime.VersionAPI{
+		RuntimeVersion: &gssmrruntime.Version{},
+		API:            nil,
+	}
+
+	version.Decode(data[offset : offset+length])
+	fmt.Printf("Spec_name: %s\n", version.RuntimeVersion.Spec_name)
+	fmt.Printf("Impl_name: %s\n", version.RuntimeVersion.Impl_name)
+	fmt.Printf("Authoring_version: %d\n", version.RuntimeVersion.Authoring_version)
+	fmt.Printf("Spec_version: %d\n", version.RuntimeVersion.Spec_version)
+	fmt.Printf("Impl_version: %d\n", version.RuntimeVersion.Impl_version)
+	runtime.KeepAlive(mem)
+	//fmt.Println(mem)
 }
 
 func check(e error) {
