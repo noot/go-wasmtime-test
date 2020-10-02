@@ -1,12 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"flag"
 	"fmt"
 	"math/big"
+	"os"
 	"runtime"
+	"runtime/pprof"
+	"time"
 
 	//"github.com/ChainSafe/gossamer/lib/keystore"
 	"github.com/ChainSafe/gossamer/dot/types"
+	"github.com/ChainSafe/gossamer/lib/babe"
 	gssmrruntime "github.com/ChainSafe/gossamer/lib/runtime"
 	"github.com/ChainSafe/gossamer/lib/scale"
 
@@ -14,6 +20,8 @@ import (
 	log "github.com/ChainSafe/log15"
 	"github.com/bytecodealliance/wasmtime-go"
 )
+
+var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
 type Ctx struct {
 	storage   *testRuntimeStorage
@@ -28,6 +36,7 @@ var ctx = &Ctx{
 var logger = log.New("pkg", "runtime")
 
 func main() {
+	flag.Parse()
 	engine := wasmtime.NewEngine()
 	store := wasmtime.NewStore(engine)
 
@@ -57,12 +66,20 @@ func main() {
 		logger.Trace("[ext_print_num] executing...")
 		logger.Debug("[ext_print_num]", "message", fmt.Sprintf("%d", data))
 	})
-	ext_malloc := wasmtime.WrapFunc(store, func(size int32) int32 {
+	ext_malloc := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, size int32) int32 {
 		logger.Trace("[ext_malloc] executing...")
-		return 8
+		res, err := ctx.allocator.Allocate(uint32(size))
+		if err != nil {
+			logger.Error("[ext_malloc]", "Error:", err)
+		}
+		return int32(res)
 	})
-	ext_free := wasmtime.WrapFunc(store, func(addr int32) {
+	ext_free := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, addr int32) {
 		logger.Trace("[ext_free] executing...")
+		err := ctx.allocator.Deallocate(uint32(addr))
+		if err != nil {
+			logger.Error("[ext_free]", "error", err)
+		}
 	})
 	ext_print_utf8 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, len int32) {
 		logger.Trace("[ext_print_utf8] executing...")
@@ -292,8 +309,23 @@ func main() {
 	// fmt.Printf("Authoring_version: %d\n", version.RuntimeVersion.Authoring_version)
 	// fmt.Printf("Spec_version: %d\n", version.RuntimeVersion.Spec_version)
 	// fmt.Printf("Impl_version: %d\n", version.RuntimeVersion.Impl_version)
-	runtime.KeepAlive(mem)
+	//runtime.KeepAlive(mem)
 	initialize_block(instance)
+	apply_inherent_extrinsics(instance)
+	finalize_block(instance)
+
+	if *memprofile != "" {
+		fmt.Println("creating memprofile")
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			fmt.Printf("could not create memory profile: ", err)
+		}
+		defer f.Close() // error handling omitted for example
+		runtime.GC()    // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			fmt.Printf("could not write memory profile: ", err)
+		}
+	}
 }
 
 func check(e error) {
@@ -352,9 +384,90 @@ func initialize_block(instance *wasmtime.Instance) error {
 	encodedHeader = append(encodedHeader, 0)
 
 	ret, err := exec(instance, "Core_initialize_block", encodedHeader)
-	check(err)
+	if err != nil {
+		return err
+	}
 	fmt.Println(ret)
 	return nil
+}
+
+func apply_inherent_extrinsics(instance *wasmtime.Instance) error {
+	idata := babe.NewInherentsData()
+	err := idata.SetInt64Inherent(babe.Timstap0, uint64(time.Now().Unix()))
+	if err != nil {
+		return err
+	}
+
+	// add babeslot
+	err = idata.SetInt64Inherent(babe.Babeslot, 1)
+	if err != nil {
+		return err
+	}
+
+	// add finalnum
+	err = idata.SetBigIntInherent(babe.Finalnum, big.NewInt(0))
+	if err != nil {
+		return err
+	}
+
+	ienc, err := idata.Encode()
+	if err != nil {
+		return err
+	}
+
+	// Call BlockBuilder_inherent_extrinsics which returns the inherents as extrinsics
+	inherentExts, err := exec(instance, "BlockBuilder_inherent_extrinsics", ienc)
+	if err != nil {
+		return err
+	}
+
+	// decode inherent extrinsics
+	exts, err := scale.Decode(inherentExts, [][]byte{})
+	if err != nil {
+		return err
+	}
+
+	// apply each inherent extrinsic
+	for _, ext := range exts.([][]byte) {
+		in, err := scale.Encode(ext)
+		if err != nil {
+			return err
+		}
+
+		ret, err := exec(instance, "BlockBuilder_apply_extrinsic", in)
+		if err != nil {
+			return err
+		}
+
+		if !bytes.Equal(ret, []byte{0, 0}) {
+			return fmt.Errorf("error applying extrinsic: %v", ret)
+		}
+	}
+
+	return nil
+}
+
+func finalize_block(instance *wasmtime.Instance) (*types.Header, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("recovered", r)
+		}
+	}()
+
+	ret, err := exec(instance, "BlockBuilder_finalize_block", []byte{})
+	if err != nil {
+		return nil, err
+	}
+
+	bh := new(types.Header)
+	// _, err = scale.Decode(ret, bh)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	fmt.Println(ret)
+
+	return bh, nil
 }
 
 func core_version(instance *wasmtime.Instance) {
