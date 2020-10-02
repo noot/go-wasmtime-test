@@ -13,6 +13,7 @@ import (
 	//"github.com/ChainSafe/gossamer/lib/keystore"
 	"github.com/ChainSafe/gossamer/dot/types"
 	"github.com/ChainSafe/gossamer/lib/babe"
+	"github.com/ChainSafe/gossamer/lib/common"
 	gssmrruntime "github.com/ChainSafe/gossamer/lib/runtime"
 	"github.com/ChainSafe/gossamer/lib/scale"
 
@@ -127,8 +128,18 @@ func main() {
 	ext_twox_64 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, length, out int32) {
 		logger.Trace("[ext_twox_64] executing...")
 	})
-	ext_twox_128 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, length, out int32) {
+	ext_twox_128 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, len, out int32) {
 		logger.Trace("[ext_twox_128] executing...")
+		m := c.GetExport("memory").Memory()
+		mem := m.UnsafeData()
+		logger.Info("[ext_twox_128]", "hashing", mem[data:data+len])
+
+		res, err := common.Twox128Hash(mem[data : data+len])
+		if err != nil {
+			logger.Trace("error hashing in ext_twox_128", "error", err)
+		}
+		copy(mem[out:out+16], res)
+		runtime.KeepAlive(m)
 	})
 	ext_sr25519_generate := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, idData, seed, seedLen, out int32) {
 		logger.Trace("[ext_sr25519_generate] executing...")
@@ -310,9 +321,17 @@ func main() {
 	// fmt.Printf("Spec_version: %d\n", version.RuntimeVersion.Spec_version)
 	// fmt.Printf("Impl_version: %d\n", version.RuntimeVersion.Impl_version)
 	//runtime.KeepAlive(mem)
-	initialize_block(instance)
-	apply_inherent_extrinsics(instance)
-	finalize_block(instance)
+	err = babe_configuration(instance)
+	check(err)
+
+	// err = initialize_block(instance)
+	// check(err)
+
+	// apply_inherent_extrinsics(instance)
+	// check(err)
+
+	// finalize_block(instance)
+	// check(err)
 
 	if *memprofile != "" {
 		fmt.Println("creating memprofile")
@@ -351,7 +370,7 @@ func exec(instance *wasmtime.Instance, function string, data []byte) ([]byte, er
 	memdata := mem.UnsafeData()
 	copy(memdata[ptr:ptr+uint32(len(data))], data)
 
-	run := instance.GetExport("Core_version").Func()
+	run := instance.GetExport(function).Func()
 	resi, err := run.Call(int32(ptr), int32(len(data)))
 	if err != nil {
 		return nil, err
@@ -365,6 +384,21 @@ func exec(instance *wasmtime.Instance, function string, data []byte) ([]byte, er
 	length := int32(ret >> 32)
 	offset := int32(ret)
 	return memdata[offset : offset+length], nil
+}
+
+func babe_configuration(instance *wasmtime.Instance) error {
+	ret, err := exec(instance, "BabeApi_configuration", []byte{})
+	if err != nil {
+		return err
+	}
+
+	cfg, err := scale.Decode(ret, new(types.BabeConfiguration))
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(cfg)
+	return nil
 }
 
 func initialize_block(instance *wasmtime.Instance) error {
