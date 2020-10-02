@@ -2,10 +2,14 @@ package main
 
 import (
 	"fmt"
+	"math/big"
 	"runtime"
 
 	//"github.com/ChainSafe/gossamer/lib/keystore"
+	"github.com/ChainSafe/gossamer/dot/types"
 	gssmrruntime "github.com/ChainSafe/gossamer/lib/runtime"
+	"github.com/ChainSafe/gossamer/lib/scale"
+
 	"github.com/ChainSafe/gossamer/lib/trie"
 	log "github.com/ChainSafe/log15"
 	"github.com/bytecodealliance/wasmtime-go"
@@ -263,6 +267,99 @@ func main() {
 
 	mem := instance.GetExport("memory").Memory()
 	data := mem.UnsafeData()
+	ctx.allocator = gssmrruntime.NewAllocator(data, 0)
+
+	// mem := instance.GetExport("memory").Memory()
+	// data := mem.UnsafeData()
+
+	// run := instance.GetExport("Core_version").Func()
+	// resi, err := run.Call(1, 0)
+	// check(err)
+
+	// ret := resi.(int64)
+
+	// length := int32(ret >> 32)
+	// offset := int32(ret)
+
+	// version := &gssmrruntime.VersionAPI{
+	// 	RuntimeVersion: &gssmrruntime.Version{},
+	// 	API:            nil,
+	// }
+
+	// version.Decode(data[offset : offset+length])
+	// fmt.Printf("Spec_name: %s\n", version.RuntimeVersion.Spec_name)
+	// fmt.Printf("Impl_name: %s\n", version.RuntimeVersion.Impl_name)
+	// fmt.Printf("Authoring_version: %d\n", version.RuntimeVersion.Authoring_version)
+	// fmt.Printf("Spec_version: %d\n", version.RuntimeVersion.Spec_version)
+	// fmt.Printf("Impl_version: %d\n", version.RuntimeVersion.Impl_version)
+	runtime.KeepAlive(mem)
+	initialize_block(instance)
+}
+
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
+}
+
+func exec(instance *wasmtime.Instance, function string, data []byte) ([]byte, error) {
+	ptr, err := ctx.allocator.Allocate(uint32(len(data)))
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		err = ctx.allocator.Deallocate(ptr)
+		if err != nil {
+			logger.Error("exec: could not free ptr", "error", err)
+		}
+	}()
+
+	mem := instance.GetExport("memory").Memory()
+	memdata := mem.UnsafeData()
+	copy(memdata[ptr:ptr+uint32(len(data))], data)
+
+	run := instance.GetExport("Core_version").Func()
+	resi, err := run.Call(int32(ptr), int32(len(data)))
+	if err != nil {
+		return nil, err
+	}
+
+	if resi == nil {
+		return []byte{}, err
+	}
+
+	ret := resi.(int64)
+	length := int32(ret >> 32)
+	offset := int32(ret)
+	return memdata[offset : offset+length], nil
+}
+
+func initialize_block(instance *wasmtime.Instance) error {
+	header := &types.Header{
+		ParentHash: trie.EmptyHash,
+		Number:     big.NewInt(77),
+		//StateRoot: trie.EmptyHash,
+		//ExtrinsicsRoot: trie.EmptyHash,
+		Digest: [][]byte{},
+	}
+
+	encodedHeader, err := scale.Encode(header)
+	if err != nil {
+		return fmt.Errorf("cannot encode header: %s", err)
+	}
+
+	encodedHeader = append(encodedHeader, 0)
+
+	ret, err := exec(instance, "Core_initialize_block", encodedHeader)
+	check(err)
+	fmt.Println(ret)
+	return nil
+}
+
+func core_version(instance *wasmtime.Instance) {
+	mem := instance.GetExport("memory").Memory()
+	data := mem.UnsafeData()
 
 	run := instance.GetExport("Core_version").Func()
 	resi, err := run.Call(1, 0)
@@ -285,11 +382,4 @@ func main() {
 	fmt.Printf("Spec_version: %d\n", version.RuntimeVersion.Spec_version)
 	fmt.Printf("Impl_version: %d\n", version.RuntimeVersion.Impl_version)
 	runtime.KeepAlive(mem)
-	//fmt.Println(mem)
-}
-
-func check(e error) {
-	if e != nil {
-		panic(e)
-	}
 }
