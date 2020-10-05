@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"math/big"
@@ -86,7 +87,7 @@ func main() {
 		logger.Trace("[ext_print_utf8] executing...")
 		m := c.GetExport("memory").Memory()
 		mem := m.UnsafeData()
-		logger.Info("[ext_print_utf8]", "message", mem[data:data+len])
+		logger.Info("[ext_print_utf8]", "message", fmt.Sprintf("%s", mem[data:data+len]))
 		runtime.KeepAlive(m)
 	})
 	ext_print_hex := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, offset, size int32) {
@@ -98,6 +99,17 @@ func main() {
 	})
 	ext_set_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen, valueData, valueLen int32) {
 		logger.Trace("[ext_set_storage] executing...")
+		m := c.GetExport("memory").Memory()
+		memory := m.UnsafeData()
+
+		key := memory[keyData : keyData+keyLen]
+		val := memory[valueData : valueData+valueLen]
+		logger.Trace("[ext_set_storage]", "key", fmt.Sprintf("0x%x", key), "val", val)
+		err := ctx.storage.Set(key, val)
+		if err != nil {
+			logger.Error("[ext_set_storage]", "error", err)
+			return
+		}
 	})
 	ext_set_child_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, storageKeyData, storageKeyLen, keyData, keyLen, valueData, valueLen int32) {
 		logger.Trace("[ext_set_child_storage] executing...")
@@ -111,10 +123,63 @@ func main() {
 	})
 	ext_get_allocated_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen, writtenOut int32) int32 {
 		logger.Trace("[ext_get_allocated_storage] executing...")
-		return 0
+		m := c.GetExport("memory").Memory()
+		memory := m.UnsafeData()
+
+		key := memory[keyData : keyData+keyLen]
+		logger.Trace("[ext_get_allocated_storage]", "key", fmt.Sprintf("0x%x", key))
+
+		val, err := ctx.storage.Get(key)
+		if err != nil {
+			logger.Error("[ext_get_allocated_storage]", "error", err)
+			copy(memory[writtenOut:writtenOut+4], []byte{0xff, 0xff, 0xff, 0xff})
+			return 0
+		}
+
+		if len(val) >= (1 << 32) {
+			logger.Error("[ext_get_allocated_storage]", "error", "retrieved value length exceeds 2^32")
+			copy(memory[writtenOut:writtenOut+4], []byte{0xff, 0xff, 0xff, 0xff})
+			return 0
+		}
+
+		if val == nil {
+			logger.Trace("[ext_get_allocated_storage]", "value", "nil")
+			copy(memory[writtenOut:writtenOut+4], []byte{0xff, 0xff, 0xff, 0xff})
+			return 0
+		}
+
+		ptr, err := ctx.allocator.Allocate(uint32(len(val)))
+		if err != nil {
+			logger.Error("[ext_get_allocated_storage]", "error", err)
+			copy(memory[writtenOut:writtenOut+4], []byte{0xff, 0xff, 0xff, 0xff})
+			return 0
+		}
+
+		logger.Trace("[ext_get_allocated_storage]", "value", val)
+		copy(memory[ptr:ptr+uint32(len(val))], val)
+
+		// copy length to memory
+		byteLen := make([]byte, 4)
+		binary.LittleEndian.PutUint32(byteLen, uint32(len(val)))
+
+		// writtenOut stores the location of the memory that was allocated
+		copy(memory[writtenOut:writtenOut+4], byteLen)
+
+		runtime.KeepAlive(m)
+		return int32(ptr)
 	})
 	ext_clear_storage := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, keyData, keyLen int32) {
 		logger.Trace("[ext_clear_storage] executing...")
+		m := c.GetExport("memory").Memory()
+		memory := m.UnsafeData()
+
+		key := memory[keyData : keyData+keyLen]
+		err := ctx.storage.Delete(key)
+		if err != nil {
+			logger.Error("[ext_clear_storage]", "error", err)
+		}
+
+		runtime.KeepAlive(memory)
 	})
 	ext_clear_prefix := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, prefixData, prefixLen int32) {
 		logger.Trace("[ext_clear_prefix] executing...")
@@ -124,6 +189,17 @@ func main() {
 	})
 	ext_blake2_256 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, length, out int32) {
 		logger.Trace("[ext_blake2_256] executing...")
+		m := c.GetExport("memory").Memory()
+		memory := m.UnsafeData()
+
+		hash, err := common.Blake2bHash(memory[data : data+length])
+		if err != nil {
+			logger.Error("[ext_blake2_256]", "error", err)
+			return
+		}
+
+		copy(memory[out:out+32], hash[:])
+		runtime.KeepAlive(memory)
 	})
 	ext_twox_64 := wasmtime.WrapFunc(store, func(c *wasmtime.Caller, data, length, out int32) {
 		logger.Trace("[ext_twox_64] executing...")
@@ -324,8 +400,8 @@ func main() {
 	err = babe_configuration(instance)
 	check(err)
 
-	// err = initialize_block(instance)
-	// check(err)
+	err = initialize_block(instance)
+	check(err)
 
 	// apply_inherent_extrinsics(instance)
 	// check(err)
